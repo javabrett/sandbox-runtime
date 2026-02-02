@@ -273,22 +273,42 @@ export function normalizePathForSandbox(pathPattern: string): string {
  * allow access to files from other processes. In highly security-sensitive
  * environments, you should configure more restrictive write paths.
  */
+/**
+ * Ensure a directory exists and is usable.
+ * Returns true if the directory exists or was created successfully.
+ * Returns false if the directory doesn't exist and can't be created.
+ */
+function ensureDirectoryExists(dirPath: string): boolean {
+  try {
+    if (!fs.existsSync(dirPath)) {
+      fs.mkdirSync(dirPath, { recursive: true })
+    }
+    return true
+  } catch {
+    // Can't create directory - likely permission issues
+    // This can happen in environments like homespaces where directories
+    // are owned by different users (e.g., argocd:argocd instead of root)
+    return false
+  }
+}
+
 export function getDefaultWritePaths(): string[] {
   const homeDir = homedir()
-  const recommendedPaths = [
-    '/dev/stdout',
-    '/dev/stderr',
-    '/dev/null',
-    '/dev/tty',
-    '/dev/dtracehelper',
-    '/dev/autofs_nowait',
+
+  // Directory paths that should be writable for commands to work properly.
+  // We ensure they exist before adding them - if they can't be created
+  // (permission issues in some environments), we skip them to avoid bwrap mkdir errors.
+  // Note: /dev/* paths are NOT included here because:
+  // - Linux: bwrap handles /dev with --dev /dev, and skips /dev/* in generateFilesystemArgs
+  // - macOS: base sandbox profile already includes /dev permissions
+  const directoryPaths = [
     '/tmp/claude',
     '/private/tmp/claude',
     path.join(homeDir, '.npm/_logs'),
     path.join(homeDir, '.claude/debug'),
   ]
 
-  return recommendedPaths
+  return directoryPaths.filter(ensureDirectoryExists)
 }
 
 /**

@@ -736,6 +736,204 @@ describe('macOS Seatbelt Write Bypass Prevention', () => {
   })
 })
 
+/**
+ * Tests for Unix domain socket support in network-restricted sandbox.
+ *
+ * Issue: When allowedDomains is set, the sandbox enters restricted network mode.
+ * The previous implementation used (allow network* (subpath "/")) to allow Unix
+ * sockets, but socket(AF_UNIX, SOCK_STREAM, 0) is a system-socket operation that
+ * doesn't reference a filesystem path, so (subpath ...) can't match it.
+ * This caused Gradle (FileLockContentionHandler), Docker, and other tools that
+ * create Unix domain sockets to fail with "Operation not permitted".
+ *
+ * Fix: Use (allow system-socket (socket-domain AF_UNIX)) for socket creation,
+ * and (allow network-bind/network-outbound (local/remote unix-socket ...)) for
+ * bind/connect operations.
+ */
+describe('macOS Seatbelt Unix Domain Socket Support', () => {
+  const TEST_BASE_DIR = join(
+    tmpdir(),
+    'seatbelt-unix-socket-test-' + Date.now(),
+  )
+
+  beforeAll(() => {
+    if (skipIfNotMacOS()) {
+      return
+    }
+    mkdirSync(TEST_BASE_DIR, { recursive: true })
+  })
+
+  afterAll(() => {
+    if (skipIfNotMacOS()) {
+      return
+    }
+    if (existsSync(TEST_BASE_DIR)) {
+      rmSync(TEST_BASE_DIR, { recursive: true, force: true })
+    }
+  })
+
+  it('should allow Unix domain socket creation and communication with allowAllUnixSockets', () => {
+    if (skipIfNotMacOS()) {
+      return
+    }
+
+    const socketPath = join(TEST_BASE_DIR, 'test.sock')
+    const scriptPath = join(TEST_BASE_DIR, 'test_socket.py')
+
+    // Write Python script to a file to avoid shell quoting issues
+    writeFileSync(
+      scriptPath,
+      [
+        'import socket, os',
+        `sock_path = '${socketPath}'`,
+        'if os.path.exists(sock_path):',
+        '    os.unlink(sock_path)',
+        'server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)',
+        'server.bind(sock_path)',
+        'server.listen(1)',
+        'client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)',
+        'client.connect(sock_path)',
+        'conn, _ = server.accept()',
+        "client.send(b'SOCKET_OK')",
+        'data = conn.recv(1024)',
+        'print(data.decode())',
+        'client.close()',
+        'conn.close()',
+        'server.close()',
+        'os.unlink(sock_path)',
+      ].join('\n'),
+    )
+
+    const writeConfig: FsWriteRestrictionConfig = {
+      allowOnly: [TEST_BASE_DIR],
+      denyWithinAllow: [],
+    }
+
+    const wrappedCommand = wrapCommandWithSandboxMacOS({
+      command: `python3 ${scriptPath}`,
+      needsNetworkRestriction: true,
+      allowAllUnixSockets: true,
+      readConfig: undefined,
+      writeConfig,
+    })
+
+    const result = spawnSync(wrappedCommand, {
+      shell: true,
+      encoding: 'utf8',
+      timeout: 10000,
+    })
+
+    expect(result.status).toBe(0)
+    expect(result.stdout.trim()).toBe('SOCKET_OK')
+  })
+
+  it('should allow Unix domain socket creation with specific allowUnixSockets paths', () => {
+    if (skipIfNotMacOS()) {
+      return
+    }
+
+    const socketPath = join(TEST_BASE_DIR, 'specific.sock')
+    const scriptPath = join(TEST_BASE_DIR, 'test_specific_socket.py')
+
+    writeFileSync(
+      scriptPath,
+      [
+        'import socket, os',
+        `sock_path = '${socketPath}'`,
+        'if os.path.exists(sock_path):',
+        '    os.unlink(sock_path)',
+        'server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)',
+        'server.bind(sock_path)',
+        'server.listen(1)',
+        'client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)',
+        'client.connect(sock_path)',
+        'conn, _ = server.accept()',
+        "client.send(b'SPECIFIC_OK')",
+        'data = conn.recv(1024)',
+        'print(data.decode())',
+        'client.close()',
+        'conn.close()',
+        'server.close()',
+        'os.unlink(sock_path)',
+      ].join('\n'),
+    )
+
+    const writeConfig: FsWriteRestrictionConfig = {
+      allowOnly: [TEST_BASE_DIR],
+      denyWithinAllow: [],
+    }
+
+    const wrappedCommand = wrapCommandWithSandboxMacOS({
+      command: `python3 ${scriptPath}`,
+      needsNetworkRestriction: true,
+      allowUnixSockets: [TEST_BASE_DIR],
+      readConfig: undefined,
+      writeConfig,
+    })
+
+    const result = spawnSync(wrappedCommand, {
+      shell: true,
+      encoding: 'utf8',
+      timeout: 10000,
+    })
+
+    expect(result.status).toBe(0)
+    expect(result.stdout.trim()).toBe('SPECIFIC_OK')
+  })
+
+  it('should block Unix domain socket bind when neither allowAllUnixSockets nor allowUnixSockets is set', () => {
+    if (skipIfNotMacOS()) {
+      return
+    }
+
+    const socketPath = join(TEST_BASE_DIR, 'blocked.sock')
+    const scriptPath = join(TEST_BASE_DIR, 'test_blocked_socket.py')
+
+    // This script should fail at bind() because Unix socket paths are not allowed
+    writeFileSync(
+      scriptPath,
+      [
+        'import socket, os, sys',
+        `sock_path = '${socketPath}'`,
+        'if os.path.exists(sock_path):',
+        '    os.unlink(sock_path)',
+        'try:',
+        '    s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)',
+        '    s.bind(sock_path)',
+        "    print('BIND_OK')",
+        '    s.close()',
+        '    os.unlink(sock_path)',
+        'except OSError as e:',
+        "    print(f'BLOCKED:{e}')",
+        '    sys.exit(1)',
+      ].join('\n'),
+    )
+
+    const writeConfig: FsWriteRestrictionConfig = {
+      allowOnly: [TEST_BASE_DIR],
+      denyWithinAllow: [],
+    }
+
+    const wrappedCommand = wrapCommandWithSandboxMacOS({
+      command: `python3 ${scriptPath}`,
+      needsNetworkRestriction: true,
+      // Neither allowAllUnixSockets nor allowUnixSockets
+      readConfig: undefined,
+      writeConfig,
+    })
+
+    const result = spawnSync(wrappedCommand, {
+      shell: true,
+      encoding: 'utf8',
+      timeout: 10000,
+    })
+
+    // Socket bind should be blocked
+    expect(result.status).not.toBe(0)
+    expect(result.stdout).toContain('BLOCKED:')
+  })
+})
+
 describe('macOS Seatbelt Process Enumeration', () => {
   it('should allow enumerating all process IDs (kern.proc.all sysctl)', () => {
     if (skipIfNotMacOS()) {

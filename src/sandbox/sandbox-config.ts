@@ -151,14 +151,16 @@ export const IgnoreViolationsConfigSchema = z
  * Ripgrep configuration schema
  */
 export const RipgrepConfigSchema = z.object({
-  command: z
-    .string()
-    .describe('The ripgrep command to execute (e.g., "rg", "claude")'),
+  command: z.string().describe('The ripgrep command to execute'),
   args: z
     .array(z.string())
     .optional()
+    .describe('Additional arguments to pass before ripgrep args'),
+  argv0: z
+    .string()
+    .optional()
     .describe(
-      'Additional arguments to pass before ripgrep args (e.g., ["--ripgrep"])',
+      'Override argv[0] when spawning (for multicall binaries that dispatch on argv[0])',
     ),
 })
 

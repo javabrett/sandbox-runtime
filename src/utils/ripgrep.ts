@@ -1,10 +1,12 @@
-import { execFile } from 'child_process'
+import { execFile, spawn } from 'child_process'
 import type { ExecFileException } from 'child_process'
 import { whichSync } from './which.js'
 
 export interface RipgrepConfig {
   command: string
   args?: string[]
+  /** Override argv[0] when spawning (for multicall binaries that dispatch on argv[0]) */
+  argv0?: string
 }
 
 /**
@@ -30,35 +32,70 @@ export async function ripGrep(
   abortSignal: AbortSignal,
   config: RipgrepConfig = { command: 'rg' },
 ): Promise<string[]> {
-  const { command, args: commandArgs = [] } = config
+  const { command, args: commandArgs = [], argv0 } = config
+  const fullArgs = [...commandArgs, ...args, target]
+
+  function finish(
+    resolve: (v: string[]) => void,
+    reject: (e: Error) => void,
+    code: number | null,
+    stdout: string,
+    stderr: string,
+  ): void {
+    if (code === 0) {
+      resolve(stdout.trim().split('\n').filter(Boolean))
+    } else if (code === 1) {
+      // Exit code 1 means "no matches found" - this is normal, return empty array
+      resolve([])
+    } else {
+      reject(new Error(`ripgrep failed with exit code ${code}: ${stderr}`))
+    }
+  }
+
+  // execFile doesn't support argv0; use spawn when argv0 is set
+  if (argv0) {
+    return new Promise((resolve, reject) => {
+      const child = spawn(command, fullArgs, {
+        argv0,
+        signal: abortSignal,
+        windowsHide: true,
+      })
+      let stdout = ''
+      let stderr = ''
+      child.stdout?.on('data', d => (stdout += d))
+      child.stderr?.on('data', d => (stderr += d))
+      const timer = setTimeout(() => child.kill(), 10_000)
+      child.on('error', err => {
+        clearTimeout(timer)
+        reject(err)
+      })
+      child.on('close', code => {
+        clearTimeout(timer)
+        finish(resolve, reject, code, stdout, stderr)
+      })
+    })
+  }
 
   return new Promise((resolve, reject) => {
     execFile(
       command,
-      [...commandArgs, ...args, target],
+      fullArgs,
       {
         maxBuffer: 20_000_000, // 20MB
         signal: abortSignal,
         timeout: 10_000, // 10 second timeout
       },
       (error: ExecFileException | null, stdout: string, stderr: string) => {
-        // Success case - exit code 0
         if (!error) {
-          resolve(stdout.trim().split('\n').filter(Boolean))
+          finish(resolve, reject, 0, stdout, stderr)
           return
         }
-
-        // Exit code 1 means "no matches found" - this is normal, return empty array
-        if (error.code === 1) {
-          resolve([])
-          return
-        }
-
-        // All other errors should fail
-        reject(
-          new Error(
-            `ripgrep failed with exit code ${error.code}: ${stderr || error.message}`,
-          ),
+        finish(
+          resolve,
+          reject,
+          typeof error.code === 'number' ? error.code : -1,
+          stdout,
+          stderr || error.message,
         )
       },
     )

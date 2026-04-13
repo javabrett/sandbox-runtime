@@ -1,4 +1,23 @@
 /**
+ * Log a proxy deny unconditionally to stderr.
+ *
+ * This is always emitted (no env var gate) so that blocked network connections
+ * are visible without needing SRT_DEBUG=1. The output goes to stderr to avoid
+ * corrupting any stdout JSON stream the caller may be producing.
+ *
+ * Format: [srt] proxy-blocked: <PROTOCOL> <hostname>:<port> - not in allowedDomains
+ */
+export function logProxyDeny(
+  protocol: 'HTTPS-CONNECT' | 'HTTP' | 'SOCKS',
+  hostname: string,
+  port: number,
+): void {
+  process.stderr.write(
+    `[srt] proxy-blocked: ${protocol} ${hostname}:${port} - not in allowedDomains\n`,
+  )
+}
+
+/**
  * Simple debug logging for standalone sandbox
  */
 export function logForDebugging(

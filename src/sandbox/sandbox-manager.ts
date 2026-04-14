@@ -1,7 +1,7 @@
 import { createHttpProxyServer } from './http-proxy.js'
 import { createSocksProxyServer } from './socks-proxy.js'
 import type { SocksProxyWrapper } from './socks-proxy.js'
-import { logForDebugging } from '../utils/debug.js'
+import { logForDebugging, logSandboxStartup } from '../utils/debug.js'
 import { whichSync } from '../utils/which.js'
 import { getPlatform, getWslVersion } from '../utils/platform.js'
 import * as fs from 'fs'
@@ -662,6 +662,7 @@ async function wrapWithSandbox(
 
   switch (platform) {
     case 'macos':
+      logSandboxStartup()
       // macOS sandbox profile supports glob patterns directly, no ripgrep needed
       return wrapCommandWithSandboxMacOS({
         command,

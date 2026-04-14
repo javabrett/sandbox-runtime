@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process'
+import * as fs from 'node:fs'
 
 /**
  * Log a proxy deny via the system logger so it is visible in system logs
@@ -49,6 +50,43 @@ export function logProxyDeny(
     `proxy-blocked: ${protocol} ${hostname}:${port} - not in allowedDomains`,
     { level: 'error' },
   )
+}
+
+/**
+ * Log srt startup info (version, key config flags) to the system logger so it
+ * is visible in the unified log stream alongside seatbelt deny messages.
+ *
+ * On macOS the message is suffixed with `_SBX` - the same tag used in srt's
+ * seatbelt deny rules - so it appears in the same `srt-log` stream:
+ *
+ *   log stream --predicate 'eventMessage ENDSWITH "_SBX"' --style compact
+ *
+ * Example:
+ *   srt startup: version=0.0.49-javabrett.9_SBX
+ *
+ * On Linux the message is written to syslog without the _SBX suffix.
+ */
+export function logSandboxStartup(): void {
+  let version = 'unknown'
+  try {
+    const pkg = JSON.parse(
+      fs.readFileSync(new URL('../../package.json', import.meta.url), 'utf-8'),
+    ) as { version: string }
+    version = pkg.version
+  } catch {
+    // Ignore - version stays 'unknown'
+  }
+
+  const body = `srt startup: version=${version}`
+
+  if (process.platform === 'darwin') {
+    spawn('logger', [`${body}_SBX`], {
+      detached: true,
+      stdio: 'ignore',
+    }).unref()
+  } else if (process.platform === 'linux') {
+    spawn('logger', [body], { detached: true, stdio: 'ignore' }).unref()
+  }
 }
 
 /**

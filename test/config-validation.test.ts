@@ -278,4 +278,52 @@ describe('Config Validation', () => {
       expect(result.data.ripgrep).toBeUndefined()
     }
   })
+
+  test('should accept enableVerboseNetworkDeny: true', () => {
+    const config = {
+      enableVerboseNetworkDeny: true,
+      network: { allowedDomains: [], deniedDomains: [] },
+      filesystem: { denyRead: [], allowWrite: [], denyWrite: [] },
+    }
+    const result = SandboxRuntimeConfigSchema.safeParse(config)
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.data.enableVerboseNetworkDeny).toBe(true)
+    }
+  })
+
+  test('should accept enableVerboseNetworkDeny: false', () => {
+    const config = {
+      enableVerboseNetworkDeny: false,
+      network: { allowedDomains: [], deniedDomains: [] },
+      filesystem: { denyRead: [], allowWrite: [], denyWrite: [] },
+    }
+    const result = SandboxRuntimeConfigSchema.safeParse(config)
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.data.enableVerboseNetworkDeny).toBe(false)
+    }
+  })
+
+  test('should accept config without enableVerboseNetworkDeny (optional)', () => {
+    const config = {
+      network: { allowedDomains: [], deniedDomains: [] },
+      filesystem: { denyRead: [], allowWrite: [], denyWrite: [] },
+    }
+    const result = SandboxRuntimeConfigSchema.safeParse(config)
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.data.enableVerboseNetworkDeny).toBeUndefined()
+    }
+  })
+
+  test('should reject enableVerboseNetworkDeny with non-boolean value', () => {
+    const config = {
+      enableVerboseNetworkDeny: 'yes',
+      network: { allowedDomains: [], deniedDomains: [] },
+      filesystem: { denyRead: [], allowWrite: [], denyWrite: [] },
+    }
+    const result = SandboxRuntimeConfigSchema.safeParse(config)
+    expect(result.success).toBe(false)
+  })
 })

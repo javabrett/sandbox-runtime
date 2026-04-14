@@ -906,3 +906,89 @@ describe.if(isMacOS)('macOS Seatbelt allowMachLookup', () => {
     expect(result.status).toBe(0)
   })
 })
+
+describe('enableVerboseNetworkDeny profile generation', () => {
+  const baseParams = {
+    command: 'echo test',
+    needsNetworkRestriction: true,
+    httpProxyPort: 8080,
+    readConfig: undefined,
+    writeConfig: undefined,
+  }
+
+  it('includes AF_INET/AF_INET6 system-socket allows when enabled', () => {
+    const wrapped = wrapCommandWithSandboxMacOS({
+      ...baseParams,
+      enableVerboseNetworkDeny: true,
+    })
+    expect(wrapped).toContain('(allow system-socket (socket-domain AF_INET))')
+    expect(wrapped).toContain('(allow system-socket (socket-domain AF_INET6))')
+  })
+
+  it('includes explicit network-outbound deny with logTag when enabled', () => {
+    const wrapped = wrapCommandWithSandboxMacOS({
+      ...baseParams,
+      enableVerboseNetworkDeny: true,
+    })
+    expect(wrapped).toContain('(deny network-outbound (with message ')
+  })
+
+  it('does not include AF_INET allows when disabled', () => {
+    const wrapped = wrapCommandWithSandboxMacOS({
+      ...baseParams,
+      enableVerboseNetworkDeny: false,
+    })
+    expect(wrapped).not.toContain(
+      '(allow system-socket (socket-domain AF_INET))',
+    )
+    expect(wrapped).not.toContain(
+      '(allow system-socket (socket-domain AF_INET6))',
+    )
+  })
+
+  it('does not include explicit network-outbound deny when disabled', () => {
+    const wrapped = wrapCommandWithSandboxMacOS({
+      ...baseParams,
+      enableVerboseNetworkDeny: false,
+    })
+    // The only deny should be the catch-all (deny default ...), not an explicit network-outbound deny
+    expect(wrapped).not.toContain('(deny network-outbound')
+  })
+
+  it('does not include AF_INET allows when option is absent', () => {
+    const wrapped = wrapCommandWithSandboxMacOS({ ...baseParams })
+    expect(wrapped).not.toContain(
+      '(allow system-socket (socket-domain AF_INET))',
+    )
+    expect(wrapped).not.toContain(
+      '(allow system-socket (socket-domain AF_INET6))',
+    )
+    expect(wrapped).not.toContain('(deny network-outbound')
+  })
+
+  it('still includes proxy allow rules when verbose deny is enabled', () => {
+    const wrapped = wrapCommandWithSandboxMacOS({
+      ...baseParams,
+      enableVerboseNetworkDeny: true,
+    })
+    // The profile is shell-quoted so double quotes appear escaped; check unquoted substrings
+    expect(wrapped).toContain('allow network-outbound')
+    expect(wrapped).toContain('localhost:8080')
+  })
+
+  it('does not add rules when needsNetworkRestriction is false', () => {
+    const wrapped = wrapCommandWithSandboxMacOS({
+      command: 'echo test',
+      needsNetworkRestriction: false,
+      enableVerboseNetworkDeny: true,
+      readConfig: {
+        denyOnly: ['/tmp/secret'],
+      } as FsReadRestrictionConfig,
+      writeConfig: undefined,
+    })
+    expect(wrapped).not.toContain(
+      '(allow system-socket (socket-domain AF_INET))',
+    )
+    expect(wrapped).not.toContain('(deny network-outbound')
+  })
+})

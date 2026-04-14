@@ -35,6 +35,7 @@ export interface MacOSSandboxParams {
   allowPty?: boolean
   allowGitConfig?: boolean
   enableWeakerNetworkIsolation?: boolean
+  enableVerboseNetworkDeny?: boolean
   binShell?: string
 }
 
@@ -406,6 +407,7 @@ function generateSandboxProfile({
   allowPty,
   allowGitConfig = false,
   enableWeakerNetworkIsolation = false,
+  enableVerboseNetworkDeny = false,
   logTag,
 }: {
   readConfig: FsReadRestrictionConfig | undefined
@@ -420,6 +422,7 @@ function generateSandboxProfile({
   allowPty?: boolean
   allowGitConfig?: boolean
   enableWeakerNetworkIsolation?: boolean
+  enableVerboseNetworkDeny?: boolean
   logTag: string
 }): string {
   const profile: string[] = [
@@ -492,6 +495,15 @@ function generateSandboxProfile({
     '',
     "; Specific safe system-sockets, doesn't allow network access",
     '(allow system-socket (require-all (socket-domain AF_SYSTEM) (socket-protocol 2)))',
+    ...(needsNetworkRestriction && enableVerboseNetworkDeny
+      ? [
+          '; AF_INET/AF_INET6 socket creation allowed so blocked connections reach',
+          '; connect() where the explicit deny fires with destination address/port.',
+          '; Without this, the default deny fires at socket() with no destination info.',
+          '(allow system-socket (socket-domain AF_INET))',
+          '(allow system-socket (socket-domain AF_INET6))',
+        ]
+      : []),
     '',
     '; sysctl - specific sysctls only',
     '(allow sysctl-read',
@@ -658,6 +670,17 @@ function generateSandboxProfile({
         `(allow network-outbound (remote ip "localhost:${socksProxyPort}"))`,
       )
     }
+
+    // Verbose network deny: explicit deny at connect() time so the seatbelt log
+    // includes the destination address and port. Seatbelt specificity-based matching
+    // ensures the proxy allow rules above always win over this bare deny.
+    if (enableVerboseNetworkDeny) {
+      profile.push(
+        '; Verbose network deny - fires at connect() so destination is logged.',
+        '; Less specific than proxy allows above; seatbelt specificity ensures those win.',
+        `(deny network-outbound (with message "${logTag}"))`,
+      )
+    }
   }
   profile.push('')
 
@@ -718,6 +741,7 @@ export function wrapCommandWithSandboxMacOS(
     allowPty,
     allowGitConfig = false,
     enableWeakerNetworkIsolation = false,
+    enableVerboseNetworkDeny = false,
     binShell,
   } = params
 
@@ -751,6 +775,7 @@ export function wrapCommandWithSandboxMacOS(
     allowPty,
     allowGitConfig,
     enableWeakerNetworkIsolation,
+    enableVerboseNetworkDeny,
     logTag,
   })
 

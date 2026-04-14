@@ -519,6 +519,10 @@ function getEnableWeakerNetworkIsolation(): boolean | undefined {
   return config?.enableWeakerNetworkIsolation
 }
 
+function getEnableVerboseNetworkDeny(): boolean | undefined {
+  return config?.enableVerboseNetworkDeny
+}
+
 function getRipgrepConfig(): { command: string; args?: string[] } {
   return config?.ripgrep ?? { command: 'rg' }
 }
@@ -679,6 +683,7 @@ async function wrapWithSandbox(
         allowPty,
         allowGitConfig: getAllowGitConfig(),
         enableWeakerNetworkIsolation: getEnableWeakerNetworkIsolation(),
+        enableVerboseNetworkDeny: getEnableVerboseNetworkDeny(),
         binShell,
       })
 

@@ -263,6 +263,17 @@ export const SandboxRuntimeConfigSchema = z.object({
         'when using httpProxyPort with a MITM proxy and custom CA. Enabling this opens a potential data ' +
         'exfiltration vector through the trustd service. Only enable if you need Go TLS verification.',
     ),
+  enableVerboseNetworkDeny: z
+    .boolean()
+    .optional()
+    .describe(
+      'Enable verbose network deny logging on macOS (default: false). ' +
+        'When enabled, AF_INET/AF_INET6 socket creation is allowed so blocked connections ' +
+        'reach the connect() stage, where the seatbelt deny fires with the full destination ' +
+        'address and port. Without this, the default deny fires at socket() creation and ' +
+        'logs only the process name with no destination. The proxy allow rules are more ' +
+        'specific than the explicit deny and are unaffected.',
+    ),
   ripgrep: RipgrepConfigSchema.optional().describe(
     'Custom ripgrep configuration (default: { command: "rg" })',
   ),
